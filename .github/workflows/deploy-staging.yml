@@ -41,8 +41,8 @@ jobs:
       - name: Deploy to staging ECS
         run: |
           aws ecs update-service \
-            --cluster myapp-staging-cluster \
-            --service myapp-staging-service \
+            --cluster myapp-dev-cluster \
+            --service myapp-dev-service \
             --force-new-deployment \
             --region ap-south-1
 
