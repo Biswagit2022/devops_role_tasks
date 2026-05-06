@@ -1,0 +1,64 @@
+name: 2. Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connect to AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/myapp:${{ github.sha }}
+        run: |
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/myapp:${{ github.sha }}
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Deploy to staging ECS
+        run: |
+          aws ecs update-service \
+            --cluster myapp-staging-cluster \
+            --service myapp-staging-service \
+            --force-new-deployment \
+            --region ap-south-1
+
+  notify-on-failure:
+    needs: build-and-deploy
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Staging Deployment Failed"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: ${{ secrets.SMTP_USERNAME }}
+          body: "Staging deploy failed. See: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
